@@ -328,6 +328,19 @@ function splitTheme(theme: string): { head: string; sub: string } {
   return { head: theme.slice(0, i), sub: theme.slice(i + 1) };
 }
 
+function renderFoodRecommendation(text: string) {
+  const match = text.match(/^(.*?)\[([^\]]+)\]\(([^)]+)\)$/);
+  if (!match) return text;
+  return (
+    <>
+      {match[1]}
+      <a href={match[3]} target="_blank" rel="noopener noreferrer">
+        {match[2]} ↗
+      </a>
+    </>
+  );
+}
+
 // Touch device → also offer the Naver app deep-link beside the web link.
 // Subscribed as an external store so a pointer-type change (e.g. a tablet
 // gaining a mouse) is picked up instead of being sampled once on mount.
@@ -1190,6 +1203,23 @@ export function TripSchedulePage() {
               animation: "tripRiseIn 240ms ease",
             }}
           >
+            <div
+              style={{
+                ...infoCard,
+                background: "var(--space-lighter)",
+                border: "1px solid rgba(224,179,106,0.24)",
+              }}
+            >
+              <div className="mono" style={infoLabel}>
+                🍜 朋朋推薦美食
+              </div>
+              <ul style={{ ...infoList, paddingLeft: 20 }}>
+                {PRACTICAL.推薦美食.map((food, i) => (
+                  <li key={i}>{renderFoodRecommendation(food)}</li>
+                ))}
+              </ul>
+            </div>
+
             <div style={infoCard}>
               <div className="mono" style={infoLabel}>
                 🚇 交通

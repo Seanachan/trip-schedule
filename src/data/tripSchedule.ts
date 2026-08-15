@@ -75,6 +75,7 @@ export interface Trip {
 }
 
 export interface Practical {
+  推薦美食: string[];
   交通: string[];
   住宿: string[];
   天氣: string;
@@ -454,6 +455,7 @@ function parseDayBlocks(lines: string[], footnotes: Map<string, string>): TripDa
 
 function parsePracticalFromMain(lines: string[]): Omit<Practical, "避雷清單"> {
   return {
+    推薦美食: parseBullets(getSection(lines, "推薦美食")),
     住宿: parseBullets(getSection(lines, "住宿")),
     交通: parseBullets(getSection(lines, "交通")),
     天氣: parseParagraph(getSection(lines, "天氣")),
