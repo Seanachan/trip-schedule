@@ -66,14 +66,17 @@ describe("real trip note", () => {
     expect(TRIP.flights[1].dep).toContain("09:00");
   });
 
-  it("parses the Airbnb booking row: booking set, 3 links, no leftover link syntax", () => {
+  it("parses the Airbnb booking row: booking set, links lifted, no leftover link syntax", () => {
     const airbnbNight = TRIP_DAYS.flatMap((d) => d.items).find((it) =>
       it.title.startsWith("住宿：首爾弘大 Airbnb"),
     );
     expect(airbnbNight).toBeDefined();
     expect(airbnbNight!.booking).toBeTruthy();
-    expect(airbnbNight!.links.length).toBe(3);
+    // One link — the room that was actually booked. The rejected candidates
+    // were dropped once both stays were confirmed.
+    expect(airbnbNight!.links.length).toBe(1);
     expect(airbnbNight!.notes).not.toContain("](http");
+    expect(airbnbNight!.detail).not.toContain("](http");
   });
 
   it("parses the place for the title that itself contains '@' (baseball game)", () => {
@@ -87,11 +90,20 @@ describe("real trip note", () => {
     expect(baseball!.place?.lng).toBe(129.0615);
   });
 
-  it("expands the KBO footnote back into the baseball row's notes", () => {
+  it("puts the KBO footnote in the baseball row's detail, not its notes", () => {
     const baseball = TRIP_DAYS.flatMap((d) => d.items).find((it) => it.title.includes("看棒球"))!;
-    expect(baseball.notes).toContain("giantsclub.com 與樂天巨人官方 app 售票");
+    expect(baseball.detail).toContain("giantsclub.com");
+    // The summary stays short — that regression is the whole point of the
+    // split, so assert the length rather than just the absence of the marker.
     expect(baseball.notes).not.toContain("[^");
+    expect(baseball.notes).not.toContain("giantsclub");
+    expect(baseball.notes.length).toBeLessThan(120);
     expect(baseball.links.map((l) => l.label)).toEqual(["KBO 官方賽程", "樂天官方售票"]);
+  });
+
+  it("keeps every row's summary skimmable now that footnotes live in detail", () => {
+    const tooLong = TRIP_DAYS.flatMap((d) => d.items).filter((it) => it.notes.length > 200);
+    expect(tooLong.map((it) => `${it.time} ${it.title}`)).toEqual([]);
   });
 
   it("keeps the footnote definitions out of the practical sections", () => {
@@ -194,15 +206,29 @@ describe("parseTripMarkdown (synthetic fixture)", () => {
     expect(parsed.days[0].items.length).toBe(6);
   });
 
-  it("expands a footnote after the ｜ split, so its own ｜ and links survive", () => {
+  it("splits a footnote out of notes after the ｜ split, so its own ｜ and links survive", () => {
     const withFootnote = parsed.days[0].items[4];
     expect(withFootnote.booking).toBe("短訂位");
-    expect(withFootnote.notes).toBe("摘要 長註解含全形分隔｜還有 連結");
+    // The cell's own one-line summary is all that stays in `notes` — the
+    // prose moves to `detail` so the card can lead with the skimmable half.
+    expect(withFootnote.notes).toBe("摘要");
+    expect(withFootnote.detail).toBe("長註解含全形分隔｜還有 連結");
     expect(withFootnote.links).toEqual([{ label: "連結", url: "https://example.com/a" }]);
   });
 
   it("leaves an undefined footnote reference in place rather than dropping it", () => {
     expect(parsed.days[0].items[5].notes).toBe("摘要 [^nope]");
+    expect(parsed.days[0].items[5].detail).toBeUndefined();
+  });
+
+  it("leaves detail unset on a row with no footnote", () => {
+    expect(parsed.days[0].items[0].notes).toBe("備註A");
+    expect(parsed.days[0].items[0].detail).toBeUndefined();
+  });
+
+  it("collapses the double space left behind by a removed marker", () => {
+    // "摘要 [^fn1]" → dropping the marker would otherwise leave "摘要 ".
+    expect(parsed.days[0].items[4].notes).not.toMatch(/\s{2}|\s$/);
   });
 
   it("does not leak footnote definitions into the practical sections", () => {

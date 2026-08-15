@@ -4,6 +4,7 @@ import {
   useState,
   useSyncExternalStore,
   type CSSProperties,
+  type ReactNode,
 } from "react";
 import {
   CATS,
@@ -117,6 +118,64 @@ const doneDotStyle: CSSProperties = {
   lineHeight: 1,
   color: "var(--space-blue)",
   fontWeight: 900,
+};
+
+/**
+ * Render the `**bold**` runs a note actually uses, and nothing else.
+ *
+ * Not a markdown parser and not meant to become one: `[label](url)` is
+ * already lifted into `links[]` before a note reaches the page, so bold is
+ * the only inline mark left in the vault's prose. It used to ship raw, so
+ * every emphasised phrase arrived wearing its asterisks — exactly the phrases
+ * written to stand out were the ones that read as noise.
+ */
+function withBold(text: string): ReactNode[] {
+  return text.split(/(\*\*[^*]+\*\*)/g).map((part, i) =>
+    part.startsWith("**") && part.endsWith("**") && part.length > 4 ? (
+      <strong key={i} style={{ color: "var(--purdue-gold)", fontWeight: 700 }}>
+        {part.slice(2, -2)}
+      </strong>
+    ) : (
+      <Fragment key={i}>{part}</Fragment>
+    ),
+  );
+}
+
+/**
+ * Break footnote prose at its own `⚠️` markers. A definition has to be one
+ * line in the vault (the table parser never sees a continuation line), so the
+ * author's only paragraph signal is that emoji — every note uses it to start
+ * a distinct warning. Splitting there is what turns a 1,200-character block
+ * into something with edges.
+ */
+function detailParagraphs(detail: string): string[] {
+  return detail
+    .split(/\n\n+|(?=⚠️)/g)
+    .map((p) => p.trim())
+    .filter(Boolean);
+}
+
+const detailBox: CSSProperties = {
+  margin: "0 0 14px",
+  padding: "12px 14px",
+  borderRadius: 8,
+  background: "rgba(255,255,255,0.03)",
+  border: "1px solid rgba(206,184,136,0.14)",
+};
+
+const detailLabel: CSSProperties = {
+  fontSize: "0.66rem",
+  letterSpacing: "0.08em",
+  color: "var(--purdue-muted)",
+  marginBottom: 8,
+};
+
+const detailText: CSSProperties = {
+  margin: "0 0 10px",
+  fontSize: "0.85rem",
+  lineHeight: 1.9,
+  color: "var(--text-gray-400)",
+  whiteSpace: "pre-line",
 };
 
 const logBox: CSSProperties = {
@@ -935,8 +994,27 @@ export function TripSchedulePage() {
                               whiteSpace: "pre-line",
                             }}
                           >
-                            {it.notes}
+                            {withBold(it.notes)}
                           </p>
+                        )}
+                        {it.detail && (
+                          <div style={detailBox}>
+                            <div className="mono" style={detailLabel}>
+                              📖 詳細說明
+                            </div>
+                            {detailParagraphs(it.detail).map((para, i, all) => (
+                              <p
+                                key={i}
+                                style={
+                                  i === all.length - 1
+                                    ? { ...detailText, marginBottom: 0 }
+                                    : detailText
+                                }
+                              >
+                                {withBold(para)}
+                              </p>
+                            ))}
+                          </div>
                         )}
                         {it.log && (
                           <div style={logBox}>
@@ -980,7 +1058,7 @@ export function TripSchedulePage() {
                                   whiteSpace: "pre-line",
                                 }}
                               >
-                                {it.booking}
+                                {withBold(it.booking)}
                               </div>
                             </div>
                           )}

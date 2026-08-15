@@ -37,7 +37,11 @@ export interface DayItem {
   type: CategoryKey;
   /** GPS place from the 地點 column; null when the row has no location set. */
   place: Place | null;
+  /** The 備註 cell's own text — written to be skimmed in one line. */
   notes: string;
+  /** Long-form prose pulled in from the row's `[^label]` footnotes, kept out
+   * of `notes` so the card can show it as a separate, collapsible block. */
+  detail?: string;
   cost?: string | null;
   booking?: string | null;
   links: ScheduleLink[];
@@ -206,10 +210,33 @@ function extractFootnotes(lines: string[]): {
   return { footnotes, lines: kept };
 }
 
-/** Replace `[^label]` references with their definition. An undefined label is
- * left in place — a visible marker beats silently dropping the prose. */
-function resolveFootnotes(text: string, footnotes: Map<string, string>): string {
-  return text.replace(/\[\^([^\]]+)\]/g, (marker, label: string) => footnotes.get(label) ?? marker);
+/**
+ * Pull `[^label]` references out of `text` instead of expanding them in
+ * place, returning the prose separately.
+ *
+ * Expanding inline is what the parser used to do, and it read badly: the
+ * cell's one-line summary ran straight into a 1,200-character definition with
+ * no seam, so the card was a wall of text and the summary — the part written
+ * to be skimmed — was invisible. Keeping them apart lets the card lead with
+ * the summary and show the prose as its own block.
+ *
+ * An undefined label is left in the text: a visible marker beats silently
+ * dropping the prose. Removing a marker can leave a double space behind, so
+ * runs of spaces collapse — but not newlines, which a `<br>` in the cell
+ * turned into real line breaks that the card still honours.
+ */
+function splitFootnotes(
+  text: string,
+  footnotes: Map<string, string>,
+): { text: string; detail: string[] } {
+  const detail: string[] = [];
+  const stripped = text.replace(/\[\^([^\]]+)\]/g, (marker, label: string) => {
+    const prose = footnotes.get(label);
+    if (prose === undefined) return marker;
+    detail.push(prose);
+    return "";
+  });
+  return { text: stripped.replace(/[ \t]{2,}/g, " ").trim(), detail };
 }
 
 function parseTitleAndSubtitle(lines: string[]): { title: string; subtitle: string } {
@@ -310,6 +337,7 @@ function parsePlace(cell: string): Place | null {
 interface ParsedNotes {
   booking?: string;
   notes: string;
+  detail?: string;
   links: ScheduleLink[];
 }
 
@@ -322,9 +350,10 @@ const BOOKING_PREFIX = "訂位：";
  * with whatever remains → notes. Any further `｜` inside that remaining text
  * is left alone — it's just part of the sentence.
  *
- * `[^label]` footnote references are expanded after the `｜` split (so prose
+ * `[^label]` footnote references are pulled out after the `｜` split (so prose
  * pulled in from a definition can contain `｜` freely) and before the link
- * scan (so links written inside a definition still reach `links[]`).
+ * scan (so links written inside a definition still reach `links[]`). The prose
+ * lands in `detail`, not `notes` — see `splitFootnotes`.
  */
 function parseNotesCell(raw: string, footnotes: Map<string, string>): ParsedNotes {
   let text = raw;
@@ -342,18 +371,30 @@ function parseNotesCell(raw: string, footnotes: Map<string, string>): ParsedNote
     }
   }
 
-  if (booking) booking = resolveFootnotes(booking, footnotes);
-  text = resolveFootnotes(text, footnotes);
+  // A footnote referenced from the 訂位： half belongs in the same detail
+  // block as one referenced from the note text — both are the long-form
+  // version of this row, and the card shows them together.
+  const detailParts: string[] = [];
+  if (booking) {
+    const split = splitFootnotes(booking, footnotes);
+    booking = split.text;
+    detailParts.push(...split.detail);
+  }
+  const splitText = splitFootnotes(text, footnotes);
+  text = splitText.text;
+  detailParts.push(...splitText.detail);
 
   const links: ScheduleLink[] = [];
-  const notes = text
-    .replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_match, label: string, url: string) => {
+  const collectLinks = (s: string) =>
+    s.replace(/\[([^\]]*)\]\(([^)]*)\)/g, (_match, label: string, url: string) => {
       links.push({ label, url });
       return label;
-    })
-    .trim();
+    });
 
-  return { booking, notes, links };
+  const notes = collectLinks(text).trim();
+  const detail = detailParts.map(collectLinks).join("\n\n").trim();
+
+  return { booking, notes, detail: detail || undefined, links };
 }
 
 function parseDayItemRow(cells: string[], footnotes: Map<string, string>): DayItem {
@@ -369,7 +410,7 @@ function parseDayItemRow(cells: string[], footnotes: Map<string, string>): DayIt
     log = "",
   ] = cells;
 
-  const { booking, notes, links } = parseNotesCell(notesCell, footnotes);
+  const { booking, notes, detail, links } = parseNotesCell(notesCell, footnotes);
 
   return {
     title,
@@ -378,6 +419,7 @@ function parseDayItemRow(cells: string[], footnotes: Map<string, string>): DayIt
     type: type as CategoryKey,
     place: parsePlace(placeCell),
     notes,
+    detail,
     cost: cost || undefined,
     booking: booking || undefined,
     links,
